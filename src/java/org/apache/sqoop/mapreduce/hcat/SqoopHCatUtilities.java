@@ -312,8 +312,14 @@ public final class SqoopHCatUtilities {
       LOG.info("Setting hCatOutputFormat filter to " + filterStr);
     }
 
+    try {
     HCatOutputFormat.setOutput(hCatJob,
       OutputJobInfo.create(hCatDatabaseName, hCatTableName, filterMap));
+    } catch (java.io.IOException e) {
+      if (e.getCause() instanceof java.lang.UnsupportedOperationException) {
+    	// skip exception, like this one - https://issues.apache.org/jira/browse/HIVE-4625
+      }
+    }
     hCatOutputSchema = HCatOutputFormat.getTableSchema(configuration);
     List<HCatFieldSchema> hCatPartitionSchemaFields =
       new ArrayList<HCatFieldSchema>();
