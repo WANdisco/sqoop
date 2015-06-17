@@ -271,8 +271,8 @@ public class TableDefWriter {
     } else {
       tablePath = warehouseDir + inputTableName;
     }
-    FileSystem fs = FileSystem.get(configuration);
-    return new Path(tablePath).makeQualified(fs);
+     
+    return new Path(tablePath);
   }
 
   /**

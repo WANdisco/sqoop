@@ -114,8 +114,8 @@ public class HiveImport {
    * from where we put it, before running Hive LOAD DATA INPATH.
    */
   private void removeTempLogs(Path tablePath) throws IOException {
-    FileSystem fs = FileSystem.get(configuration);
     Path logsPath = new Path(tablePath, "_logs");
+    FileSystem fs = logsPath.getFileSystem(configuration);
     if (fs.exists(logsPath)) {
       LOG.info("Removing temporary files from import process: " + logsPath);
       if (!fs.delete(logsPath, true)) {
@@ -262,23 +262,24 @@ public class HiveImport {
    * @throws IOException
    */
   private void cleanUp(Path outputPath) throws IOException {
-    FileSystem fs = FileSystem.get(configuration);
-
     // HIVE is not always removing input directory after LOAD DATA statement
     // (which is our export directory). We're removing export directory in case
     // that is blank for case that user wants to periodically populate HIVE
     // table (for example with --hive-overwrite).
     try {
-      if (outputPath != null && fs.exists(outputPath)) {
-        FileStatus[] statuses = fs.listStatus(outputPath);
-        if (statuses.length == 0) {
-          LOG.info("Export directory is empty, removing it.");
-          fs.delete(outputPath, true);
-        } else if (statuses.length == 1 && statuses[0].getPath().getName().equals(FileOutputCommitter.SUCCEEDED_FILE_NAME)) {
-          LOG.info("Export directory is contains the _SUCCESS file only, removing the directory.");
-          fs.delete(outputPath, true);
-        } else {
-          LOG.info("Export directory is not empty, keeping it.");
+      if (outputPath != null) {
+        FileSystem fs = outputPath.getFileSystem(configuration);
+        if(fs.exists(outputPath)) {
+          FileStatus[] statuses = fs.listStatus(outputPath);
+          if (statuses.length == 0) {
+            LOG.info("Export directory is empty, removing it.");
+            fs.delete(outputPath, true);
+          } else if (statuses.length == 1 && statuses[0].getPath().getName().equals(FileOutputCommitter.SUCCEEDED_FILE_NAME)) {
+            LOG.info("Export directory is contains the _SUCCESS file only, removing the directory.");
+            fs.delete(outputPath, true);
+          } else {
+            LOG.info("Export directory is not empty, keeping it.");
+          }
         }
       }
     } catch(IOException e) {
