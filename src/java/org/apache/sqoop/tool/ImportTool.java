@@ -292,7 +292,6 @@ public class ImportTool extends com.cloudera.sqoop.tool.BaseSqoopTool {
       return true;
     }
 
-    FileSystem fs = FileSystem.get(options.getConf());
     SqoopOptions.IncrementalMode incrementalMode = options.getIncrementalMode();
     String nextIncrementalValue = null;
 
@@ -317,11 +316,15 @@ public class ImportTool extends com.cloudera.sqoop.tool.BaseSqoopTool {
       }
       break;
     case DateLastModified:
-      if (options.getMergeKeyCol() == null && !options.isAppendMode()
-          && fs.exists(getOutputPath(options, context.getTableName(), false))) {
-        throw new ImportException("--" + MERGE_KEY_ARG + " or " + "--" + APPEND_ARG
-          + " is required when using --" + this.INCREMENT_TYPE_ARG
-          + " lastmodified and the output directory exists.");
+      Path oPath = getOutputPath(options, context.getTableName(), false);
+      if (oPath != null) {
+        FileSystem fs = oPath.getFileSystem(options.getConf());
+        if (options.getMergeKeyCol() == null && !options.isAppendMode()
+            && fs.exists(oPath)) {
+          throw new ImportException("--" + MERGE_KEY_ARG + " or " + "--" + APPEND_ARG
+            + " is required when using --" + this.INCREMENT_TYPE_ARG
+            + " lastmodified and the output directory exists.");
+        }
       }
       checkColumnType = manager.getColumnTypes(options.getTableName(),
         options.getSqlQuery()).get(options.getIncrementalTestColumn());
@@ -428,40 +431,43 @@ public class ImportTool extends com.cloudera.sqoop.tool.BaseSqoopTool {
    * Merge HDFS output directories
    */
   protected void lastModifiedMerge(SqoopOptions options, ImportJobContext context) throws IOException {
-    FileSystem fs = FileSystem.get(options.getConf());
-    if (context.getDestination() != null && fs.exists(context.getDestination())) {
-      Path userDestDir = getOutputPath(options, context.getTableName(), false);
-      if (fs.exists(userDestDir)) {
-        String tableClassName = null;
-        if (!context.getConnManager().isORMFacilitySelfManaged()) {
-          tableClassName =
-              new TableClassName(options).getClassForTable(context.getTableName());
-        }
-        Path destDir = getOutputPath(options, context.getTableName());
-        options.setExistingJarName(context.getJarFile());
-        options.setClassName(tableClassName);
-        options.setMergeOldPath(userDestDir.toString());
-        options.setMergeNewPath(context.getDestination().toString());
-        // Merge to temporary directory so that original directory remains intact.
-        options.setTargetDir(destDir.toString());
+    Path destPath = context.getDestination();
+    if (destPath != null) {
+      FileSystem fs = destPath.getFileSystem(options.getConf());
+      if (context.getDestination() != null && fs.exists(destPath)) {
+        Path userDestDir = getOutputPath(options, context.getTableName(), false);
+        if (fs.exists(userDestDir)) {
+          String tableClassName = null;
+          if (!context.getConnManager().isORMFacilitySelfManaged()) {
+            tableClassName =
+                new TableClassName(options).getClassForTable(context.getTableName());
+          }
+          Path destDir = getOutputPath(options, context.getTableName());
+          options.setExistingJarName(context.getJarFile());
+          options.setClassName(tableClassName);
+          options.setMergeOldPath(userDestDir.toString());
+          options.setMergeNewPath(context.getDestination().toString());
+          // Merge to temporary directory so that original directory remains intact.
+          options.setTargetDir(destDir.toString());
 
         // Local job tracker needs jars in the classpath.
-        loadJars(options.getConf(), context.getJarFile(), context.getTableName());
+          loadJars(options.getConf(), context.getJarFile(), context.getTableName());
 
-        MergeJob mergeJob = new MergeJob(options);
-        if (mergeJob.runMergeJob()) {
-          // Rename destination directory to proper location.
-          Path tmpDir = getOutputPath(options, context.getTableName());
-          fs.rename(userDestDir, tmpDir);
-          fs.rename(destDir, userDestDir);
-          fs.delete(tmpDir, true);
+          MergeJob mergeJob = new MergeJob(options);
+          if (mergeJob.runMergeJob()) {
+            // Rename destination directory to proper location.
+            Path tmpDir = getOutputPath(options, context.getTableName());
+            fs.rename(userDestDir, tmpDir);
+            fs.rename(destDir, userDestDir);
+            fs.delete(tmpDir, true);
+          } else {
+            LOG.error("Merge MapReduce job failed!");
+          }
+
+          unloadJars();
         } else {
-          LOG.error("Merge MapReduce job failed!");
+          fs.rename(context.getDestination(), userDestDir);
         }
-
-        unloadJars();
-      } else {
-        fs.rename(context.getDestination(), userDestDir);
       }
     }
   }
@@ -519,16 +525,18 @@ public class ImportTool extends com.cloudera.sqoop.tool.BaseSqoopTool {
   private void deleteTargetDir(ImportJobContext context) throws IOException {
 
     SqoopOptions options = context.getOptions();
-    FileSystem fs = FileSystem.get(options.getConf());
     Path destDir = context.getDestination();
+    if (destDir != null) {
+      FileSystem fs = destDir.getFileSystem(options.getConf());
 
-    if (fs.exists(destDir)) {
-      fs.delete(destDir, true);
-      LOG.info("Destination directory " + destDir + " deleted.");
-      return;
-    } else {
-      LOG.info("Destination directory " + destDir + " is not present, "
-        + "hence not deleting.");
+      if (fs.exists(destDir)) {
+        fs.delete(destDir, true);
+        LOG.info("Destination directory " + destDir + " deleted.");
+        return;
+      } else {
+        LOG.info("Destination directory " + destDir + " is not present, "
+          + "hence not deleting.");
+      }
     }
   }
 
